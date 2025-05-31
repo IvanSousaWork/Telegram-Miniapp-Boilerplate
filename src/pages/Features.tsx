@@ -21,7 +21,6 @@ import { usePopups } from "@/hooks/usePopups"
 import { useHapticFeedback } from "@/hooks/useHapticFeedback"
 import { motion } from "framer-motion"
 
-
 export const Features: React.FC = () => {
   const navigate = useNavigate()
   const haptic = useHapticFeedback()
@@ -29,7 +28,7 @@ export const Features: React.FC = () => {
   const {
     requestAccess,
     authenticate,
-    openSettings,
+    openSettings: openBiometricSettings,
     isAccessGranted,
     isBiometricAvailable,
     isInited,
@@ -41,9 +40,19 @@ export const Features: React.FC = () => {
     loading: biometricLoading,
   } = useBiometric()
   const { scanQR, isScanning } = useQRScanner()
-  const { readText, loading: clipboardLoading } = useClipboard()
-  const { writeText, loading: writeClipboardLoading } = useWriteClipboard()
-  const { requestLocation, location, loading: locationLoading } = useLocation()
+  const { readText, loading: clipboardLoading, isAvailable: clipboardReadAvailable } = useClipboard()
+  const { writeText, loading: writeClipboardLoading, isAvailable: clipboardWriteAvailable } = useWriteClipboard()
+  const {
+    requestLocation,
+    location,
+    loading: locationLoading,
+    status: locationStatus,
+    isInited: locationInited,
+    isLocationAvailable,
+    isAccessGranted: locationAccessGranted,
+    isAccessRequested: locationAccessRequested,
+    openSettings: openLocationSettings,
+  } = useLocation()
   const { requestFullscreen, exitFullscreen, isFullscreen } = useFullscreen()
   const { lockOrientation, unlockOrientation, orientation, isLocked } = useOrientation()
   const { addToHomeScreen, checkStatus, status: homeScreenStatus } = useHomeScreen()
@@ -91,7 +100,7 @@ export const Features: React.FC = () => {
           await showAlert("Biometric access denied. You can enable it later in settings.")
           // Offer to open settings
           setTimeout(() => {
-            openSettings()
+            openBiometricSettings()
           }, 1000)
         }
         return
@@ -136,27 +145,46 @@ export const Features: React.FC = () => {
 
   const handleReadClipboard = async () => {
     haptic.impactLight()
+
+    if (!clipboardReadAvailable) {
+      await showAlert("Clipboard read is not available on this device or browser")
+      return
+    }
+
     try {
       const text = await readText()
-      if (text) {
+      if (text && text.trim()) {
         setClipboardText(text)
         haptic.notificationSuccess()
         await showAlert(`Clipboard content: ${text}`)
       } else {
-        await showAlert("No text in clipboard")
+        await showAlert("No text found in clipboard")
       }
     } catch (error) {
       haptic.notificationError()
-      await showAlert("Clipboard access error")
+      await showAlert("Failed to read clipboard. Make sure to grant permission when prompted.")
     }
   }
 
   const handleWriteClipboard = async () => {
     haptic.impactLight()
+
+    if (!clipboardWriteAvailable) {
+      await showAlert("Clipboard write is not available on this device or browser")
+      return
+    }
+
+    const textToCopy = "Hello from Telegram WebApp! 🚀\nThis text was copied using the Web Clipboard API."
+
     try {
-      const success = await writeText("Hello from Telegram WebApp!")
-      haptic.notificationSuccess()
-      await showAlert(success ? "Text copied to clipboard!" : "Failed to copy text")
+      const success = await writeText(textToCopy)
+      if (success) {
+        haptic.notificationSuccess()
+        await showAlert("Text copied to clipboard successfully!\n\nTry pasting it somewhere to verify.")
+      } else {
+        haptic.notificationError()
+        await showAlert("Failed to copy text to clipboard")
+      }
     } catch (error) {
       haptic.notificationError()
       await showAlert("Clipboard write error")
@@ -165,13 +193,52 @@ export const Features: React.FC = () => {
 
   const handleLocation = async () => {
     haptic.impactMedium()
+
+    if (locationStatus === "unavailable") {
+      await showAlert("Location services are not available on this device")
+      return
+    }
+
+    if (locationStatus === "initializing") {
+      await showAlert("Location system is still initializing. Please wait a moment.")
+      return
+    }
+
+    if (locationStatus === "access_needed") {
+      // Try to request location (this may prompt for permission)
+      try {
+        const loc = await requestLocation()
+        if (loc) {
+          haptic.notificationSuccess()
+          await showAlert(
+            `Location obtained!\nLat: ${loc.latitude.toFixed(6)}\nLng: ${loc.longitude.toFixed(6)}${
+              loc.altitude ? `\nAlt: ${loc.altitude.toFixed(2)}m` : ""
+            }${loc.speed ? `\nSpeed: ${loc.speed.toFixed(2)} m/s` : ""}`,
+          )
+        } else {
+          await showAlert("Location access denied. You can enable it in settings.")
+          setTimeout(() => {
+            openLocationSettings()
+          }, 1000)
+        }
+      } catch (error) {
+        haptic.notificationError()
+        await showAlert("Error requesting location")
+      }
+      return
+    }
+
     try {
       const loc = await requestLocation()
       if (loc) {
         haptic.notificationSuccess()
-        await showAlert(`Location: ${loc.latitude}, ${loc.longitude}`)
+        await showAlert(
+          `Location: ${loc.latitude.toFixed(6)}, ${loc.longitude.toFixed(6)}${
+            loc.altitude ? `\nAltitude: ${loc.altitude.toFixed(2)}m` : ""
+          }${loc.speed ? `\nSpeed: ${loc.speed.toFixed(2)} m/s` : ""}`,
+        )
       } else {
-        await showAlert("Location access denied")
+        await showAlert("Failed to get location")
       }
     } catch (error) {
       haptic.notificationError()
@@ -225,6 +292,13 @@ export const Features: React.FC = () => {
     return "available"
   }
 
+  const getLocationFeatureStatus = (): "available" | "unavailable" | "loading" | "warning" => {
+    if (locationLoading || locationStatus === "initializing") return "loading"
+    if (locationStatus === "unavailable") return "unavailable"
+    if (locationStatus === "access_needed") return "warning"
+    return "available"
+  }
+
   const getBiometricStatusText = () => {
     switch (biometricStatus) {
       case "initializing":
@@ -235,6 +309,21 @@ export const Features: React.FC = () => {
         return "🔓 Access Required"
       case "ready":
         return "🔐 Ready"
+      default:
+        return "⏳ Checking..."
+    }
+  }
+
+  const getLocationStatusText = () => {
+    switch (locationStatus) {
+      case "initializing":
+        return "🔄 Initializing..."
+      case "unavailable":
+        return "❌ Not Available"
+      case "access_needed":
+        return "📍 Access Required"
+      case "ready":
+        return "🌍 Ready"
       default:
         return "⏳ Checking..."
     }
@@ -370,22 +459,6 @@ export const Features: React.FC = () => {
                     </div>
                   )}
                 </div>
-
-                {biometricStatus === "access_needed" && (
-                  <div className="text-xs text-orange-600 dark:text-orange-400 mt-2">
-                    Tap to enable biometric authentication
-                  </div>
-                )}
-
-                {biometricStatus === "unavailable" && (
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    Biometric authentication not supported
-                  </div>
-                )}
-
-                {biometricStatus === "initializing" && (
-                  <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">Setting up biometric system...</div>
-                )}
               </div>
             </FeatureCard>
           </motion.div>
@@ -430,8 +503,8 @@ export const Features: React.FC = () => {
           >
             <FeatureCard
               title="Read Clipboard"
-              description="Read text from device clipboard"
-              status={clipboardLoading ? "loading" : "available"}
+              description="Read text from device clipboard using Web API"
+              status={!clipboardReadAvailable ? "unavailable" : clipboardLoading ? "loading" : "available"}
               onTest={handleReadClipboard}
               icon={
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -444,13 +517,23 @@ export const Features: React.FC = () => {
                 </svg>
               }
             >
-              {clipboardText && (
-                <div className="mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
-                  <p className="text-sm text-purple-700 dark:text-purple-300">
-                    <strong>Clipboard:</strong> {clipboardText}
-                  </p>
-                </div>
-              )}
+              <div className="mt-3 space-y-2">
+                <Badge variant={clipboardReadAvailable ? "success" : "error"} className="text-xs">
+                  {clipboardReadAvailable ? "🌐 Web API Available" : "❌ Not Supported"}
+                </Badge>
+
+                {!clipboardReadAvailable && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Requires HTTPS and modern browser</div>
+                )}
+
+                {clipboardText && (
+                  <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+                    <p className="text-sm text-purple-700 dark:text-purple-300">
+                      <strong>Clipboard:</strong> {clipboardText}
+                    </p>
+                  </div>
+                )}
+              </div>
             </FeatureCard>
           </motion.div>
 
@@ -462,8 +545,8 @@ export const Features: React.FC = () => {
           >
             <FeatureCard
               title="Write Clipboard"
-              description="Write text to device clipboard"
-              status={writeClipboardLoading ? "loading" : "available"}
+              description="Copy text to device clipboard using Web API"
+              status={!clipboardWriteAvailable ? "unavailable" : writeClipboardLoading ? "loading" : "available"}
               onTest={handleWriteClipboard}
               icon={
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -475,7 +558,19 @@ export const Features: React.FC = () => {
                   />
                 </svg>
               }
-            />
+            >
+              <div className="mt-3 space-y-2">
+                <Badge variant={clipboardWriteAvailable ? "success" : "error"} className="text-xs">
+                  {clipboardWriteAvailable ? "🌐 Web API Available" : "❌ Not Supported"}
+                </Badge>
+
+                {!clipboardWriteAvailable && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Requires HTTPS and modern browser</div>
+                )}
+
+                <div className="text-xs text-blue-600 dark:text-blue-400">Click to copy sample text with emoji</div>
+              </div>
+            </FeatureCard>
           </motion.div>
 
           {/* Location */}
@@ -487,7 +582,7 @@ export const Features: React.FC = () => {
             <FeatureCard
               title="Location"
               description="Get device location coordinates"
-              status={locationLoading ? "loading" : "available"}
+              status={getLocationFeatureStatus()}
               onTest={handleLocation}
               icon={
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -506,15 +601,77 @@ export const Features: React.FC = () => {
                 </svg>
               }
             >
-              {location && (
-                <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl">
-                  <p className="text-sm text-orange-700 dark:text-orange-300">
-                    <strong>Lat:</strong> {location.latitude.toFixed(6)}
-                    <br />
-                    <strong>Lng:</strong> {location.longitude.toFixed(6)}
-                  </p>
+              <div className="mt-3 space-y-2">
+                <Badge
+                  variant={
+                    locationStatus === "ready"
+                      ? "success"
+                      : locationStatus === "access_needed"
+                        ? "warning"
+                        : locationStatus === "initializing"
+                          ? "info"
+                          : "default"
+                  }
+                >
+                  {getLocationStatusText()}
+                </Badge>
+
+                {/* Debug Information */}
+                <div className="text-xs space-y-1">
+                  <div className="flex gap-2">
+                    <Badge variant="default" className="text-xs">
+                      Init: {locationInited ? "✅" : "❌"}
+                    </Badge>
+                    <Badge variant="default" className="text-xs">
+                      Available: {isLocationAvailable ? "✅" : "❌"}
+                    </Badge>
+                  </div>
+
+                  {locationAccessGranted && (
+                    <Badge variant="success" className="text-xs">
+                      ✅ Access Granted
+                    </Badge>
+                  )}
+                  {locationAccessRequested && !locationAccessGranted && (
+                    <Badge variant="warning" className="text-xs">
+                      ⏳ Access Requested
+                    </Badge>
+                  )}
                 </div>
-              )}
+
+                {location && (
+                  <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl">
+                    <div className="text-sm text-orange-700 dark:text-orange-300 space-y-1">
+                      <p>
+                        <strong>Lat:</strong> {location.latitude.toFixed(6)}
+                      </p>
+                      <p>
+                        <strong>Lng:</strong> {location.longitude.toFixed(6)}
+                      </p>
+                      {location.altitude && (
+                        <p>
+                          <strong>Alt:</strong> {location.altitude.toFixed(2)}m
+                        </p>
+                      )}
+                      {location.speed && (
+                        <p>
+                          <strong>Speed:</strong> {location.speed.toFixed(2)} m/s
+                        </p>
+                      )}
+                      {location.course && (
+                        <p>
+                          <strong>Course:</strong> {location.course.toFixed(0)}°
+                        </p>
+                      )}
+                      {location.horizontal_accuracy && (
+                        <p>
+                          <strong>Accuracy:</strong> ±{location.horizontal_accuracy.toFixed(1)}m
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </FeatureCard>
           </motion.div>
 
