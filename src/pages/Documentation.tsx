@@ -504,18 +504,18 @@ export const Documentation: React.FC = () => {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="text-center py-8"
         >
-          <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl p-6 shadow-xl">
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl p-6 shadow-xl">
             <h3 className="text-xl font-bold mb-2">🚀 Ready to build amazing Mini Apps?</h3>
             <p className="text-blue-100 mb-4">
               Explore all features and start implementing them in your Telegram Mini App
             </p>
             <Button
               onClick={() => navigate("/features")}
-              className="bg-white text-blue-600 hover:bg-gray-100 rounded-xl px-6 py-3 font-semibold"
+              className="!bg-white !text-blue-600 hover:!bg-gray-100 rounded-xl px-6 py-3 font-semibold"
             >
-              Try Live Examples →
+              Try Live Examples &rarr;
             </Button>
-          </div>
+            </div>
         </motion.div>
       </div>
     </div>
