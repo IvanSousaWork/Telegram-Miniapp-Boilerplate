@@ -29,9 +29,15 @@ export const Features: React.FC = () => {
   const {
     requestAccess,
     authenticate,
+    openSettings,
     isAccessGranted,
+    isBiometricAvailable,
+    isInited,
     status: biometricStatus,
     biometricType,
+    isAccessRequested,
+    isBiometricTokenSaved,
+    deviceId,
     loading: biometricLoading,
   } = useBiometric()
   const { scanQR, isScanning } = useQRScanner()
@@ -70,6 +76,11 @@ export const Features: React.FC = () => {
       return
     }
 
+    if (biometricStatus === "initializing") {
+      await showAlert("Biometric system is still initializing. Please wait a moment.")
+      return
+    }
+
     if (biometricStatus === "access_needed") {
       try {
         const accessGranted = await requestAccess("Enable biometric authentication for secure access")
@@ -78,6 +89,10 @@ export const Features: React.FC = () => {
           await showAlert("Biometric access granted! You can now authenticate.")
         } else {
           await showAlert("Biometric access denied. You can enable it later in settings.")
+          // Offer to open settings
+          setTimeout(() => {
+            openSettings()
+          }, 1000)
         }
         return
       } catch (error) {
@@ -197,17 +212,32 @@ export const Features: React.FC = () => {
     shareToStory("https://picsum.photos/400/600", {
       text: "Shared from Telegram WebApp!",
       widget_link: {
-        url: "https://t.me/TMWA_BOT",
+        url: "https://t.me/your_bot",
         name: "Open App",
       },
     })
   }
 
   const getBiometricFeatureStatus = (): "available" | "unavailable" | "loading" | "warning" => {
-    if (biometricLoading) return "loading"
+    if (biometricLoading || biometricStatus === "initializing") return "loading"
     if (biometricStatus === "unavailable") return "unavailable"
     if (biometricStatus === "access_needed") return "warning"
     return "available"
+  }
+
+  const getBiometricStatusText = () => {
+    switch (biometricStatus) {
+      case "initializing":
+        return "🔄 Initializing..."
+      case "unavailable":
+        return "❌ Not Available"
+      case "access_needed":
+        return "🔓 Access Required"
+      case "ready":
+        return "🔐 Ready"
+      default:
+        return "⏳ Checking..."
+    }
   }
 
   return (
@@ -232,7 +262,7 @@ export const Features: React.FC = () => {
         </motion.div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Cloud Storage (but why?) */}
+          {/* Cloud Storage */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -264,7 +294,7 @@ export const Features: React.FC = () => {
             </FeatureCard>
           </motion.div>
 
-          {/* Biometric Authentication (cooked not working)*/}
+          {/* Biometric Authentication */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -293,25 +323,53 @@ export const Features: React.FC = () => {
                       ? "success"
                       : biometricStatus === "access_needed"
                         ? "warning"
-                        : "default"
+                        : biometricStatus === "initializing"
+                          ? "info"
+                          : "default"
                   }
                 >
-                  {biometricStatus === "ready"
-                    ? "🔐 Ready"
-                    : biometricStatus === "access_needed"
-                      ? "🔓 Access Required"
-                      : biometricStatus === "unavailable"
-                        ? "❌ Not Available"
-                        : "⏳ Checking..."}
+                  {getBiometricStatusText()}
                 </Badge>
 
-                {biometricType && (
-                  <Badge variant="info">
-                    {biometricType === "face" ? "👤" : "👆"} {biometricType}
-                  </Badge>
-                )}
+                {/* Debug Information */}
+                <div className="text-xs space-y-1">
+                  <div className="flex gap-2">
+                    <Badge variant="default" className="text-xs">
+                      Init: {isInited ? "✅" : "❌"}
+                    </Badge>
+                    <Badge variant="default" className="text-xs">
+                      Available: {isBiometricAvailable ? "✅" : "❌"}
+                    </Badge>
+                  </div>
 
-                {isAccessGranted && <Badge variant="success">✅ Access Granted</Badge>}
+                  {biometricType && (
+                    <Badge variant="info" className="text-xs">
+                      {biometricType === "face" ? "👤" : biometricType === "finger" ? "👆" : "❓"} {biometricType}
+                    </Badge>
+                  )}
+
+                  {isAccessGranted && (
+                    <Badge variant="success" className="text-xs">
+                      ✅ Access Granted
+                    </Badge>
+                  )}
+                  {isAccessRequested && !isAccessGranted && (
+                    <Badge variant="warning" className="text-xs">
+                      ⏳ Access Requested
+                    </Badge>
+                  )}
+                  {isBiometricTokenSaved && (
+                    <Badge variant="info" className="text-xs">
+                      🔑 Token Saved
+                    </Badge>
+                  )}
+
+                  {deviceId && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Device: {deviceId.substring(0, 8)}...
+                    </div>
+                  )}
+                </div>
 
                 {biometricStatus === "access_needed" && (
                   <div className="text-xs text-orange-600 dark:text-orange-400 mt-2">
@@ -323,6 +381,10 @@ export const Features: React.FC = () => {
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     Biometric authentication not supported
                   </div>
+                )}
+
+                {biometricStatus === "initializing" && (
+                  <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">Setting up biometric system...</div>
                 )}
               </div>
             </FeatureCard>
