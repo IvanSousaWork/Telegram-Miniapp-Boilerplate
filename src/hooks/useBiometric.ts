@@ -6,48 +6,76 @@ import { useTelegram } from "./useTelegram"
 /**
  * hook for Telegram WebApp Biometric Authentication
  */
-// dk bozo not working 
 export const useBiometric = () => {
   const { webApp } = useTelegram()
   const [loading, setLoading] = useState(false)
-  const [accessRequested, setAccessRequested] = useState(false)
+  const [isInited, setIsInited] = useState(false)
 
-  // auto-request access when biometric is available but access not granted
+  // initialize BiometricManager when webApp is available
   useEffect(() => {
-    if (
-      webApp?.BiometricManager?.isBiometricAvailable &&
-      !webApp?.BiometricManager?.isAccessGranted &&
-      !accessRequested
-    ) {
-      setAccessRequested(true)
-      requestAccess("Enable biometric authentication for enhanced security")
+    if (webApp?.BiometricManager && !isInited) {
+      setLoading(true)
+      webApp.BiometricManager.init(() => {
+        setIsInited(true)
+        setLoading(false)
+        console.log("BiometricManager initialized successfully")
+
+        
+        if (
+          webApp.BiometricManager.isBiometricAvailable &&
+          !webApp.BiometricManager.isAccessGranted &&
+          !webApp.BiometricManager.isAccessRequested
+        ) {
+          
+          setTimeout(() => {
+            requestAccess("Enable biometric authentication for enhanced security")
+          }, 500)
+        }
+      })
     }
-  }, [webApp?.BiometricManager, accessRequested])
+  }, [webApp?.BiometricManager, isInited])
 
   const requestAccess = useCallback(
     async (reason?: string): Promise<boolean> => {
-      if (!webApp?.BiometricManager) return false
+      if (!webApp?.BiometricManager || !isInited) {
+        console.warn("BiometricManager not initialized")
+        return false
+      }
+
+      if (!webApp.BiometricManager.isBiometricAvailable) {
+        console.warn("Biometric not available on this device")
+        return false
+      }
 
       setLoading(true)
+
       return new Promise((resolve) => {
         webApp.BiometricManager.requestAccess(
           { reason: reason || "Enable biometric authentication for secure access" },
           (granted) => {
             setLoading(false)
-            setAccessRequested(true)
+            console.log("Biometric access request result:", granted)
             resolve(granted)
           },
         )
       })
     },
-    [webApp],
+    [webApp, isInited],
   )
 
   const authenticate = useCallback(
     async (reason?: string): Promise<{ success: boolean; token?: string }> => {
-      if (!webApp?.BiometricManager) return { success: false }
+      if (!webApp?.BiometricManager || !isInited) {
+        console.warn("BiometricManager not initialized")
+        return { success: false }
+      }
 
-      // Auto-request access if not granted
+      if (!webApp.BiometricManager.isBiometricAvailable) {
+        console.warn("Biometric not available on this device")
+        return { success: false }
+      }
+
+      
       if (!webApp.BiometricManager.isAccessGranted) {
         const accessGranted = await requestAccess(reason)
         if (!accessGranted) {
@@ -59,45 +87,91 @@ export const useBiometric = () => {
       return new Promise((resolve) => {
         webApp.BiometricManager.authenticate({ reason: reason || "Authenticate to continue" }, (success, token) => {
           setLoading(false)
+          console.log("Biometric authentication result:", { success, token: token ? "***" : undefined })
           resolve({ success, token })
         })
       })
     },
-    [webApp, requestAccess],
+    [webApp, isInited, requestAccess],
   )
 
   const updateToken = useCallback(
     async (token: string): Promise<boolean> => {
-      if (!webApp?.BiometricManager) return false
+      if (!webApp?.BiometricManager || !isInited) {
+        console.warn("BiometricManager not initialized")
+        return false
+      }
 
       setLoading(true)
       return new Promise((resolve) => {
         webApp.BiometricManager.updateBiometricToken(token, (updated) => {
           setLoading(false)
+          console.log("Biometric token update result:", updated)
           resolve(updated)
         })
       })
     },
-    [webApp],
+    [webApp, isInited],
   )
+
+  const openSettings = useCallback(() => {
+    if (!webApp?.BiometricManager || !isInited) {
+      console.warn("BiometricManager not initialized")
+      return
+    }
+    webApp.BiometricManager.openSettings()
+  }, [webApp, isInited])
 
   const getStatus = useCallback(() => {
     if (!webApp?.BiometricManager) return "unavailable"
+    if (!isInited) return "initializing"
     if (!webApp.BiometricManager.isBiometricAvailable) return "unavailable"
     if (!webApp.BiometricManager.isAccessGranted) return "access_needed"
     return "ready"
-  }, [webApp?.BiometricManager])
+  }, [webApp?.BiometricManager, isInited])
+
+  const getBiometricInfo = useCallback(() => {
+    if (!webApp?.BiometricManager || !isInited) {
+      return {
+        isBiometricAvailable: false,
+        biometricType: undefined,
+        isAccessRequested: false,
+        isAccessGranted: false,
+        isBiometricTokenSaved: false,
+        deviceId: undefined,
+      }
+    }
+
+    return {
+      isBiometricAvailable: webApp.BiometricManager.isBiometricAvailable,
+      biometricType: webApp.BiometricManager.biometricType,
+      isAccessRequested: webApp.BiometricManager.isAccessRequested,
+      isAccessGranted: webApp.BiometricManager.isAccessGranted,
+      isBiometricTokenSaved: webApp.BiometricManager.isBiometricTokenSaved,
+      deviceId: webApp.BiometricManager.deviceId,
+    }
+  }, [webApp?.BiometricManager, isInited])
+
+  const biometricInfo = getBiometricInfo()
 
   return {
+    
     requestAccess,
     authenticate,
     updateToken,
-    openSettings: () => webApp?.BiometricManager?.openSettings(),
+    openSettings,
+
+    
     loading,
-    isAvailable: webApp?.BiometricManager?.isBiometricAvailable || false,
-    isAccessGranted: webApp?.BiometricManager?.isAccessGranted || false,
-    biometricType: webApp?.BiometricManager?.biometricType,
-    deviceId: webApp?.BiometricManager?.deviceId,
+    isInited,
     status: getStatus(),
+
+    
+    ...biometricInfo,
+
+   
+    isAvailable: biometricInfo.isBiometricAvailable,
+    biometricType: biometricInfo.biometricType,
+    deviceId: biometricInfo.deviceId,
   }
 }
