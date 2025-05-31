@@ -6,7 +6,7 @@ import type { LocationData } from "@/types/telegram"
 
 type LocationStatus = "initializing" | "unavailable" | "access_needed" | "ready"
 
-
+// hook
 export const useLocation = () => {
   const { webApp } = useTelegram()
   const [loading, setLoading] = useState(false)
